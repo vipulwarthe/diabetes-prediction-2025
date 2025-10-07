@@ -1,8 +1,8 @@
 to live demo: https://dibetes-prediction.streamlit.app/
 
-# create one ec2 server with t2.medium instance type - SG- all traffic - Storage - 20
+## create one ec2 server with t2.medium instance type - SG- all traffic - Storage - 20
 
-* connect your server with xshell and Run below commands after server is up and running.
+## connect your server with xshell and Run below commands after server is up and running.
 
 sudo apt update
 
