@@ -32,3 +32,14 @@ Enter the below values:
 
 you will see the result.
 
+# Install docker on ubuntu server and create docker image and container using dockerfile.
+
+- docker build -t diabetes-app .
+
+- docker run -d -p 8501:8501 diabetes-app
+
+access the app using public ip:8501 
+
+# Install the Jenkins on ubuntu server to automate the whole process of deployment, create jenkins cicd pipeline for application deployment using ECR and ECS.
+
+
