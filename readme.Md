@@ -6,13 +6,11 @@ to live demo: https://dibetes-prediction.streamlit.app/
 
 sudo apt update
 
-apt install python3-pip
+sudo apt install python3-venv -y
 
-pip install virtualenv
+python3 -m venv MLPRO
 
-python -m venv ml-env
-
-source ml-env/bin/activate
+source MLPRO/bin/activate
 
 git clone <repo url>
 
@@ -24,7 +22,7 @@ pip install - r requirements.txt
 
 Run jupyter notebook in vscode and save the model.
 
-python3 application.py
+streamlit run application.py
 
-access 
+access application on browser add the details and get the prediction for dibetes.
 
