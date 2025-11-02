@@ -26,3 +26,9 @@ Run jupyter notebook in vscode and save the model.
 
 access application on browser add the details and get the prediction for dibetes.
 
+Enter the below values:
+
+6	148	72	35	79	33 0	50    
+
+you will see the result.
+
