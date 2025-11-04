@@ -96,14 +96,25 @@ pipeline {
 
     post {
         success {
-            echo "✅ Successfully deployed with OWASP & Trivy Security Scans!"
+            echo "✅ Successfully deployed!"
         }
+
         failure {
-            echo "❌ Pipeline Failed — Check Security Reports!"
+            echo "❌ Pipeline Failed — Cleaning Docker Images..."
+
+            sh '''
+                echo "🧹 Removing failed local Docker image..."
+                docker rmi -f ${ECR_REPO_NAME}:${IMAGE_TAG} || true
+
+                echo "🧹 Removing dangling images..."
+                docker image prune -f || true
+
+                echo "🧹 Removing unused Docker layers..."
+                docker system prune -f || true
+            '''
         }
     }
 }
-
 
 
 
