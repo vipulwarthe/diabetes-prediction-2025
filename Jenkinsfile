@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION     = "us-east-1"                     // Change if required
+        AWS_REGION     = "us-east-1"
         ACCOUNT_ID     = "717279727098"
-        ECR_REPO_NAME  = "diabetes-streamlit-app"        // Update ECR repo name
+        ECR_REPO_NAME  = "diabetes-streamlit-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
-        ECS_CLUSTER    = "diabetes-ecs-cluster"          // Update if different
-        ECS_SERVICE    = "diabetes-ecs-service"          // Update if different
+        ECS_CLUSTER    = "diabetes-ecs-cluster"
+        ECS_SERVICE    = "diabetes-ecs-service"
     }
 
     stages {
@@ -18,11 +18,62 @@ pipeline {
             }
         }
 
+        stage('Install OWASP Dependency Check') {
+            steps {
+                sh """
+                    echo 'Installing OWASP Dependency Check...'
+                    wget https://github.com/jeremylong/DependencyCheck/releases/download/v10.0.3/dependency-check-10.0.3-release.zip -O dc.zip
+                    unzip dc.zip
+                    chmod +x dependency-check/bin/dependency-check.sh
+                """
+            }
+        }
+
+        stage('Run OWASP Dependency Check') {
+            steps {
+                sh """
+                    echo 'Running OWASP Dependency Check...'
+                    dependency-check/bin/dependency-check.sh \
+                        --project "diabetes-app" \
+                        --scan . \
+                        --format HTML \
+                        --out dependency-check-report
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'dependency-check-report/*', fingerprint: true
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 sh """
                     docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
                 """
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh """
+                    echo 'Installing Trivy Scanner...'
+                    apt-get update || true
+                    apt-get install wget -y || true
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                    echo deb https://aquasecurity.github.io/trivy-repo/deb generic main | sudo tee /etc/apt/sources.list.d/trivy.list
+                    apt-get update || true
+                    apt-get install trivy -y || true
+
+                    echo 'Running Trivy Vulnerability Scan...'
+                    trivy image --exit-code 0 --format table --severity HIGH,CRITICAL ${ECR_REPO_NAME}:${IMAGE_TAG} > trivy-report.txt
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.txt', fingerprint: true
+                }
             }
         }
 
@@ -81,3 +132,4 @@ pipeline {
         }
     }
 }
+
