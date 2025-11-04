@@ -18,24 +18,15 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           OWASP DEPENDENCY CHECK (Docker)
-           ------------------------------- */
         stage('Run OWASP Dependency Check') {
-            agent {
-                docker {
-                    image 'owasp/dependency-check:latest'
-                    args '-u 0:0 -v $WORKSPACE:/src -v dependency-check-data:/usr/share/dependency-check/data'
-                }
-            }
             steps {
                 sh '''
                     echo "Running OWASP Dependency Check..."
                     dependency-check.sh \
                         --project "diabetes-app" \
-                        --scan /src \
+                        --scan . \
                         --format HTML \
-                        --out /src/dependency-check-report
+                        --out dependency-check-report
                 '''
             }
             post {
@@ -45,9 +36,6 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           DOCKER IMAGE BUILD
-           ------------------------------- */
         stage('Build Docker Image') {
             steps {
                 sh '''
@@ -56,19 +44,10 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           TRIVY SCAN (Docker)
-           ------------------------------- */
         stage('Trivy Scan Image') {
-            agent {
-                docker {
-                    image 'aquasec/trivy:latest'
-                    args '--network host -v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
             steps {
                 sh '''
-                    echo "Running Trivy scan on Docker image..."
+                    echo "Scanning Docker image with Trivy..."
                     trivy image --exit-code 0 \
                         --format table \
                         --severity HIGH,CRITICAL \
@@ -82,9 +61,6 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           AWS CONFIGURE
-           ------------------------------- */
         stage('AWS Configure') {
             steps {
                 withCredentials([
@@ -100,9 +76,6 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           LOGIN TO ECR
-           ------------------------------- */
         stage('Login to ECR') {
             steps {
                 sh '''
@@ -113,9 +86,6 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           TAG & PUSH
-           ------------------------------- */
         stage('Push Image to ECR') {
             steps {
                 sh '''
@@ -128,9 +98,6 @@ pipeline {
             }
         }
 
-        /* -------------------------------
-           DEPLOY TO ECS
-           ------------------------------- */
         stage('Deploy to ECS') {
             steps {
                 sh '''
@@ -147,13 +114,14 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment Successful with Secure DevSecOps pipeline!"
+            echo "✅ Successfully deployed with OWASP & Trivy Security Scans!"
         }
         failure {
-            echo "❌ Pipeline Failed — Check OWASP/Trivy reports."
+            echo "❌ Pipeline Failed — Check Security Reports!"
         }
     }
 }
+
 
 
 
