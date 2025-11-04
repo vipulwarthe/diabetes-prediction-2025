@@ -18,11 +18,9 @@ pipeline {
             }
         }
 
-        stage('Install OWASP Dependency Check (APT)') {
+        stage('Install OWASP Dependency Check') {
             steps {
                 sh '''
-                    echo "Installing OWASP Dependency Check via APT..."
-
                     sudo apt-get update -y
                     sudo apt-get install -y software-properties-common apt-transport-https
 
@@ -30,17 +28,14 @@ pipeline {
                     sudo apt-get update -y
 
                     sudo apt-get install -y dependency-check
-
                     dependency-check --version
                 '''
             }
         }
 
-        stage('Run OWASP Dependency Check') {
+        stage('Run Dependency Check') {
             steps {
                 sh '''
-                    echo "Running OWASP Dependency Check..."
-
                     dependency-check \
                         --project "diabetes-app" \
                         --scan . \
@@ -66,27 +61,23 @@ pipeline {
         stage('Install Trivy') {
             steps {
                 sh '''
-                    echo "Installing Trivy Vulnerability Scanner..."
-
                     sudo apt-get update -y
                     sudo apt-get install -y wget gnupg lsb-release
 
                     wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                    echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+                    echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main \
+                        | sudo tee /etc/apt/sources.list.d/trivy.list
 
                     sudo apt-get update -y
                     sudo apt-get install -y trivy
-
                     trivy --version
                 '''
             }
         }
 
-        stage('Trivy Image Scan') {
+        stage('Trivy Scan Image') {
             steps {
                 sh '''
-                    echo "Running Trivy scan on Docker image..."
-
                     trivy image --exit-code 0 \
                         --format table \
                         --severity HIGH,CRITICAL \
@@ -103,6 +94,63 @@ pipeline {
         stage('AWS Configure') {
             steps {
                 withCredentials([
+                    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    sh '''
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws configure set default.region us-east-1
+                    '''
+                }
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                sh '''
+                    aws ecr get-login-password --region ${AWS_REGION} \
+                    | docker login --username AWS --password-stdin \
+                      ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                '''
+            }
+        }
+
+        stage('Push Image to ECR') {
+            steps {
+                sh '''
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} \
+                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+
+                    docker push \
+                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Deploy to ECS') {
+            steps {
+                sh '''
+                    aws ecs update-service \
+                        --cluster ${ECS_CLUSTER} \
+                        --service ${ECS_SERVICE} \
+                        --force-new-deployment \
+                        --region ${AWS_REGION}
+                '''
+            }
+        }
+
+    } // end stages
+
+    post {
+        success {
+            echo "✅ Deployment Successful!"
+        }
+        failure {
+            echo "❌ Deployment Failed!"
+        }
+    }
+}
 
 
 
