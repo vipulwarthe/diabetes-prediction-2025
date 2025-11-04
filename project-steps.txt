@@ -1,0 +1,229 @@
+First create one ec2 instance  for devlop the machine learning model and create the stremlit app and run the notebook and save the model.
+second create one more instance for deploy the application using Jenkins and Docker.
+
+both instance are created using ubuntu 22.04/t2.medium/20gb/all-traffic
+
+✅ OWASP Dependency Check → scans your Python dependencies
+✅ Trivy Image Scan → scans your Docker image for vulnerabilities (best practice)
+
+✅ Install Jenkins/Docker/AWSCLI/Trivy (Manual Setup)  on Jenkins server
+
+✅ update the packages
+
+sudo apt update
+
+✅ Install Docker:
+
+-sudo vi docker.sh
+
+# Add Docker's official GPG key:
+sudo apt-get update
+sudo apt-get install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# Add the repository to Apt sources:
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt install docker.io -y
+docker --version
+sudo usermod -aG docker $USER    #-> Next cmd is "newgrp docker" or you can use below command
+sudo chown $USER /var/run/docker.sock
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo systemctl status docker
+
+
+-sudo chmod +x docker.sh
+- ./docker.sh 
+
+✅Install Jenkins:
+
+sudo vi jenkins.sh
+
+sudo apt update
+sudo apt install fontconfig openjdk-21-jre -y
+java -version
+
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc \
+  https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc]" \
+  https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
+  /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt update
+sudo apt install jenkins -y
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+sudo systemctl status jenkins
+
+sudo chmod +x jenkins.sh
+./jenkins.sh
+
+✅Install AWSCLI:
+sudo apt install awscli
+
+aws configure  # add access and secret key with region
+
+✅ Install OWASP Dependency Check (Manual Setup)    $$ not required to install OWASP some issue faced so skip this stage
+
+Run these on Jenkins server:
+
+cd /opt
+sudo mkdir dependency-check
+cd dependency-check
+
+wget https://github.com/jeremylong/DependencyCheck/releases/download/v10.0.3/dependency-check-10.0.3-release.zip
+sudo apt-get install -y unzip
+sudo unzip dependency-check-10.0.3-release.zip
+sudo chmod -R 755 /opt/dependency-check
+
+✅ Add to PATH:
+
+echo 'export PATH=$PATH:/opt/dependency-check/bin' | sudo tee -a /etc/profile
+source /etc/profile
+
+Test:
+
+dependency-check.sh --version
+
+✅ Install Trivy:
+
+sudo apt install wget apt-transport-https gnupg lsb-release -y
+
+wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+
+sudo apt update
+
+sudo apt install trivy -y
+
+Test:
+
+trivy --version
+
+✅ After installation of Trivy give Jenkins access to Docker using below commands:
+
+sudo usermod -aG docker jenkins
+
+sudo systemctl restart docker
+
+sudo systemctl restart jenkins
+
+Allow Jenkins to run specific sudo commands without password:
+
+sudo visudo
+
+Add this line at the bottom:
+
+jenkins ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/add-apt-repository, /usr/bin/dependency-check, /usr/bin/wget, /usr/bin/docker
+
+✅ This allows Jenkins to run only safe DevOps commands without password
+✅ Best practice for CI/CD
+✅ Keeps system secure
+✅ Works with OWASP, Trivy, Docker
+
+we need to create ECR repo/ECS cluster/ECS service/Task defination manully before run the pipeline for push the image to registry.
+
+so finally we have created automated CICD pipeline for diabeted prediction app deployment.
+
+In that Jenkins pipeline we have checkout code in SCM which is GITHUB, using that github repo in that we have created dockerfile for build the docker image. 
+After that we have scan the image, then login to the AWS and after that we have login to the ECR repo and push the docker image into it, after that we have deploy the image to the ECS.  
+
+============================================================
+dibetes prediction previous version or old and simple version of jenkinsfile:
+
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION     = "us-east-1"                     // Change if required
+        ACCOUNT_ID     = "717279727098"
+        ECR_REPO_NAME  = "diabetes-streamlit-app"        // Update ECR repo name
+        IMAGE_TAG      = "${BUILD_NUMBER}"
+        ECS_CLUSTER    = "diabetes-ecs-cluster"          // Update if different
+        ECS_SERVICE    = "diabetes-ecs-service"          // Update if different
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh """
+                    docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
+                """
+            }
+        }
+
+        stage('AWS Configure') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    sh '''
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws configure set default.region us-east-1
+                    '''
+                }
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                sh """
+                    aws ecr get-login-password --region ${AWS_REGION} \
+                    | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                """
+            }
+        }
+
+        stage('Tag & Push Image to ECR') {
+            steps {
+                sh """
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                    docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Deploy New Image to ECS') {
+            steps {
+                sh """
+                    aws ecs update-service \
+                        --cluster ${ECS_CLUSTER} \
+                        --service ${ECS_SERVICE} \
+                        --force-new-deployment \
+                        --region ${AWS_REGION}
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment Successful — Streamlit App Updated!"
+        }
+        failure {
+            echo "❌ Pipeline Failed!"
+        }
+    }
+}
+
+
+
+
+
+
+
+
