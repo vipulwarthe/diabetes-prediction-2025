@@ -1,3 +1,6 @@
+Orignal medium blog link: https://medium.com/@pp1222001/exploring-the-end-to-end-process-of-diabetes-prediction-machine-learning-project-be32add0fae3 
+orignal github link: https://github.com/paresh122/dibetes-prediction?source=post_page-----be32add0fae3---------------------------------------
+
 First create one ec2 instance  for devlop the machine learning model and create the stremlit app and run the notebook and save the model.
 second create one more instance for deploy the application using Jenkins and Docker.
 
