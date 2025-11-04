@@ -1,0 +1,159 @@
+name: CI-CD to ECS (Diabetes App)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ACCOUNT_ID: 717279727098
+  ECR_REPO_NAME: diabetes-streamlit-app
+  ECS_CLUSTER: diabetes-ecs-cluster
+  ECS_SERVICE: diabetes-ecs-service
+  IMAGE_TAG: ${{ github.run_number }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # ----------------------------------------
+    # ✅ CHECKOUT CODE
+    # ----------------------------------------
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # ----------------------------------------
+    # ✅ INSTALL AWS CLI
+    # ----------------------------------------
+    - name: Install AWS CLI
+      uses: aws-actions/setup-cli@v2
+
+    # ----------------------------------------
+    # ✅ CONFIGURE AWS CREDENTIALS
+    # ----------------------------------------
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # ----------------------------------------
+    # ✅ LOGIN TO ECR
+    # ----------------------------------------
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # ----------------------------------------
+    # ✅ BUILD DOCKER IMAGE
+    # ----------------------------------------
+    - name: Build Docker Image
+      run: |
+        docker build -t $ECR_REPO_NAME:$IMAGE_TAG .
+
+    # ----------------------------------------
+    # ✅ TRIVY SECURITY SCAN
+    # ----------------------------------------
+    - name: Install Trivy
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install wget -y
+        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_Linux-64bit.deb
+        sudo dpkg -i trivy_Linux-64bit.deb
+
+    - name: Scan Image with Trivy
+      run: |
+        trivy image --severity HIGH,CRITICAL \
+        $ECR_REPO_NAME:$IMAGE_TAG > trivy-report.txt
+      continue-on-error: true
+
+    - name: Upload Trivy Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-report
+        path: trivy-report.txt
+
+    # ----------------------------------------
+    # ✅ PUSH IMAGE TO ECR
+    # ----------------------------------------
+    - name: Tag & Push Docker Image to ECR
+      run: |
+        docker tag $ECR_REPO_NAME:$IMAGE_TAG \
+          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+
+        docker push \
+          $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+
+    # ----------------------------------------
+    # ✅ REGISTER NEW TASK DEFINITION
+    # ----------------------------------------
+    - name: Register ECS Task Definition
+      id: register-task
+      run: |
+        TASK_DEF_ARN=$(aws ecs register-task-definition \
+          --family $ECR_REPO_NAME \
+          --network-mode awsvpc \
+          --cpu "256" \
+          --memory "512" \
+          --requires-compatibilities FARGATE \
+          --execution-role-arn arn:aws:iam::$ACCOUNT_ID:role/ecsTaskExecutionRole \
+          --container-definitions "[
+            {
+              \"name\": \"diabetes-app\",
+              \"image\": \"$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG\",
+              \"essential\": true,
+              \"portMappings\": [
+                {
+                  \"containerPort\": 8501,
+                  \"hostPort\": 8501,
+                  \"protocol\": \"tcp\"
+                }
+              ]
+            }
+          ]" \
+          --query "taskDefinition.taskDefinitionArn" \
+          --output text)
+
+        echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+
+    # ----------------------------------------
+    # ✅ UPDATE ECS SERVICE
+    # ----------------------------------------
+    - name: Update ECS Service
+      run: |
+        aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --task-definition $TASK_DEF_ARN \
+          --force-new-deployment \
+          --region $AWS_REGION
+
+    # ----------------------------------------
+    # ✅ WAIT UNTIL ECS SERVICE ACTIVE
+    # ----------------------------------------
+    - name: Wait for ECS Service to Stabilize
+      run: |
+        echo "Waiting for ECS service to become ACTIVE..."
+        for i in {1..30}; do
+          STATUS=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].status" \
+            --output text)
+
+          echo "Current Status: $STATUS"
+
+          if [ "$STATUS" = "ACTIVE" ]; then
+              echo "✅ ECS Service is ACTIVE"
+              exit 0
+          fi
+
+          sleep 10
+        done
+
+        echo "❌ ECS Service did not reach ACTIVE state"
+        exit 1
