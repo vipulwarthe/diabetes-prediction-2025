@@ -3,3 +3,5 @@ numpy
 scikit-learn
 seaborn
 Flask
+streamlit
+ipykernel
