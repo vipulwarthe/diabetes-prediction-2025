@@ -18,13 +18,22 @@ pipeline {
             }
         }
 
-        stage('Install OWASP Dependency Check') {
+        stage('Install OWASP Dependency Check (APT)') {
             steps {
                 sh """
-                    echo 'Installing OWASP Dependency Check...'
-                    wget https://github.com/jeremylong/DependencyCheck/releases/download/v10.0.3/dependency-check-10.0.3-release.zip -O dc.zip
-                    unzip dc.zip
-                    chmod +x dependency-check/bin/dependency-check.sh
+                    echo 'Installing OWASP Dependency Check via APT...'
+
+                    sudo apt-get update -y
+                    sudo apt-get install -y software-properties-common apt-transport-https
+
+                    # Add OWASP dependency-check PPA
+                    sudo add-apt-repository ppa:jeremylong/owasp-dependency-check -y
+                    sudo apt-get update -y
+
+                    # Install Dependency Check CLI
+                    sudo apt-get install -y dependency-check
+
+                    dependency-check --version
                 """
             }
         }
@@ -33,8 +42,9 @@ pipeline {
             steps {
                 sh """
                     echo 'Running OWASP Dependency Check...'
-                    dependency-check/bin/dependency-check.sh \
-                        --project "diabetes-app" \
+
+                    dependency-check \
+                        --project 'diabetes-app' \
                         --scan . \
                         --format HTML \
                         --out dependency-check-report
@@ -55,19 +65,34 @@ pipeline {
             }
         }
 
+        stage('Install Trivy') {
+            steps {
+                sh """
+                    echo 'Installing Trivy Vulnerability Scanner...'
+
+                    sudo apt-get update -y
+                    sudo apt-get install -y wget gnupg lsb-release
+
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                    echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+
+                    sudo apt-get update -y
+                    sudo apt-get install -y trivy
+
+                    trivy --version
+                """
+            }
+        }
+
         stage('Trivy Image Scan') {
             steps {
                 sh """
-                    echo 'Installing Trivy Scanner...'
-                    apt-get update || true
-                    apt-get install wget -y || true
-                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                    echo deb https://aquasecurity.github.io/trivy-repo/deb generic main | sudo tee /etc/apt/sources.list.d/trivy.list
-                    apt-get update || true
-                    apt-get install trivy -y || true
+                    echo 'Running Trivy scan on Docker image...'
 
-                    echo 'Running Trivy Vulnerability Scan...'
-                    trivy image --exit-code 0 --format table --severity HIGH,CRITICAL ${ECR_REPO_NAME}:${IMAGE_TAG} > trivy-report.txt
+                    trivy image --exit-code 0 \
+                        --format table \
+                        --severity HIGH,CRITICAL \
+                        ${ECR_REPO_NAME}:${IMAGE_TAG} > trivy-report.txt
                 """
             }
             post {
@@ -104,8 +129,11 @@ pipeline {
         stage('Tag & Push Image to ECR') {
             steps {
                 sh """
-                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
-                    docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} \
+                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+
+                    docker push \
+                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
                 """
             }
         }
@@ -128,8 +156,9 @@ pipeline {
             echo "✅ Deployment Successful — Streamlit App Updated!"
         }
         failure {
-            echo "❌ Pipeline Failed!"
+            echo "❌ Pipeline Failed! Check OWASP/Trivy reports."
         }
     }
 }
+
 
