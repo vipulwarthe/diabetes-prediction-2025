@@ -20,35 +20,33 @@ pipeline {
 
         stage('Install OWASP Dependency Check (APT)') {
             steps {
-                sh """
-                    echo 'Installing OWASP Dependency Check via APT...'
+                sh '''
+                    echo "Installing OWASP Dependency Check via APT..."
 
                     sudo apt-get update -y
                     sudo apt-get install -y software-properties-common apt-transport-https
 
-                    # Add OWASP dependency-check PPA
                     sudo add-apt-repository ppa:jeremylong/owasp-dependency-check -y
                     sudo apt-get update -y
 
-                    # Install Dependency Check CLI
                     sudo apt-get install -y dependency-check
 
                     dependency-check --version
-                """
+                '''
             }
         }
 
         stage('Run OWASP Dependency Check') {
             steps {
-                sh """
-                    echo 'Running OWASP Dependency Check...'
+                sh '''
+                    echo "Running OWASP Dependency Check..."
 
                     dependency-check \
-                        --project 'diabetes-app' \
+                        --project "diabetes-app" \
                         --scan . \
                         --format HTML \
                         --out dependency-check-report
-                """
+                '''
             }
             post {
                 always {
@@ -59,16 +57,16 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh """
+                sh '''
                     docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
-                """
+                '''
             }
         }
 
         stage('Install Trivy') {
             steps {
-                sh """
-                    echo 'Installing Trivy Vulnerability Scanner...'
+                sh '''
+                    echo "Installing Trivy Vulnerability Scanner..."
 
                     sudo apt-get update -y
                     sudo apt-get install -y wget gnupg lsb-release
@@ -80,20 +78,20 @@ pipeline {
                     sudo apt-get install -y trivy
 
                     trivy --version
-                """
+                '''
             }
         }
 
         stage('Trivy Image Scan') {
             steps {
-                sh """
-                    echo 'Running Trivy scan on Docker image...'
+                sh '''
+                    echo "Running Trivy scan on Docker image..."
 
                     trivy image --exit-code 0 \
                         --format table \
                         --severity HIGH,CRITICAL \
                         ${ECR_REPO_NAME}:${IMAGE_TAG} > trivy-report.txt
-                """
+                '''
             }
             post {
                 always {
@@ -105,60 +103,6 @@ pipeline {
         stage('AWS Configure') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                    sh '''
-                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-                        aws configure set default.region us-east-1
-                    '''
-                }
-            }
-        }
 
-        stage('Login to ECR') {
-            steps {
-                sh """
-                    aws ecr get-login-password --region ${AWS_REGION} \
-                    | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                """
-            }
-        }
-
-        stage('Tag & Push Image to ECR') {
-            steps {
-                sh """
-                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} \
-                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
-
-                    docker push \
-                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
-                """
-            }
-        }
-
-        stage('Deploy New Image to ECS') {
-            steps {
-                sh """
-                    aws ecs update-service \
-                        --cluster ${ECS_CLUSTER} \
-                        --service ${ECS_SERVICE} \
-                        --force-new-deployment \
-                        --region ${AWS_REGION}
-                """
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "✅ Deployment Successful — Streamlit App Updated!"
-        }
-        failure {
-            echo "❌ Pipeline Failed! Check OWASP/Trivy reports."
-        }
-    }
-}
 
 
