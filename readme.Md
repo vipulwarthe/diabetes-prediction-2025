@@ -44,4 +44,24 @@ access the app using public ip:8501
 
 automate the whole process of deployment, create jenkins cicd pipeline for application deployment using ECR and ECS.
 
+some plugins need to install-
+
+✅ Workspace Cleanup
+
+✅ Docker
+
+✅ Docker Pipeline
+
+✅ OWASP Dependency Check
+
+✅ AWS Credentials
+
+✅ Credentials Binding
+
+✅ Pipeline
+✅ Pipeline: Groovy
+✅ Pipeline: Stage View
+
+
+
 
