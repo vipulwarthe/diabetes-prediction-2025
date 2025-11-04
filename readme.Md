@@ -79,18 +79,9 @@ automate the whole process of deployment, create jenkins cicd pipeline for appli
 
 some plugins need to install-
 
-✅ Workspace Cleanup
-
 ✅ Docker
-
 ✅ Docker Pipeline
-
 ✅ OWASP Dependency Check
-
-✅ AWS Credentials
-
-✅ Credentials Binding
-
 ✅ Pipeline
 ✅ Pipeline: Groovy
 ✅ Pipeline: Stage View
