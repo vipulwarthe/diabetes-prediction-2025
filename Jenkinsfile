@@ -18,38 +18,36 @@ pipeline {
             }
         }
 
-        stage('Install OWASP Dependency Check') {
-            steps {
-                sh '''
-                    sudo apt-get update -y
-                    sudo apt-get install -y software-properties-common apt-transport-https
-
-                    sudo add-apt-repository ppa:jeremylong/owasp-dependency-check -y
-                    sudo apt-get update -y
-
-                    sudo apt-get install -y dependency-check
-                    dependency-check --version
-                '''
+        /* -------------------------------
+           OWASP DEPENDENCY CHECK (Docker)
+           ------------------------------- */
+        stage('Run OWASP Dependency Check') {
+            agent {
+                docker {
+                    image 'owasp/dependency-check:latest'
+                    args '-u 0:0 -v $WORKSPACE:/src -v dependency-check-data:/usr/share/dependency-check/data'
+                }
             }
-        }
-
-        stage('Run Dependency Check') {
             steps {
                 sh '''
-                    dependency-check \
+                    echo "Running OWASP Dependency Check..."
+                    dependency-check.sh \
                         --project "diabetes-app" \
-                        --scan . \
+                        --scan /src \
                         --format HTML \
-                        --out dependency-check-report
+                        --out /src/dependency-check-report
                 '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'dependency-check-report/*', fingerprint: true
+                    archiveArtifacts artifacts: 'dependency-check-report/**/*', fingerprint: true
                 }
             }
         }
 
+        /* -------------------------------
+           DOCKER IMAGE BUILD
+           ------------------------------- */
         stage('Build Docker Image') {
             steps {
                 sh '''
@@ -58,26 +56,19 @@ pipeline {
             }
         }
 
-        stage('Install Trivy') {
-            steps {
-                sh '''
-                    sudo apt-get update -y
-                    sudo apt-get install -y wget gnupg lsb-release
-
-                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                    echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main \
-                        | sudo tee /etc/apt/sources.list.d/trivy.list
-
-                    sudo apt-get update -y
-                    sudo apt-get install -y trivy
-                    trivy --version
-                '''
-            }
-        }
-
+        /* -------------------------------
+           TRIVY SCAN (Docker)
+           ------------------------------- */
         stage('Trivy Scan Image') {
+            agent {
+                docker {
+                    image 'aquasec/trivy:latest'
+                    args '--network host -v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
                 sh '''
+                    echo "Running Trivy scan on Docker image..."
                     trivy image --exit-code 0 \
                         --format table \
                         --severity HIGH,CRITICAL \
@@ -91,6 +82,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           AWS CONFIGURE
+           ------------------------------- */
         stage('AWS Configure') {
             steps {
                 withCredentials([
@@ -106,6 +100,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           LOGIN TO ECR
+           ------------------------------- */
         stage('Login to ECR') {
             steps {
                 sh '''
@@ -116,6 +113,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           TAG & PUSH
+           ------------------------------- */
         stage('Push Image to ECR') {
             steps {
                 sh '''
@@ -128,6 +128,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------
+           DEPLOY TO ECS
+           ------------------------------- */
         stage('Deploy to ECS') {
             steps {
                 sh '''
@@ -144,13 +147,14 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment Successful!"
+            echo "✅ Deployment Successful with Secure DevSecOps pipeline!"
         }
         failure {
-            echo "❌ Deployment Failed!"
+            echo "❌ Pipeline Failed — Check OWASP/Trivy reports."
         }
     }
 }
+
 
 
 
