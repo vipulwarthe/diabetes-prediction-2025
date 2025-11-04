@@ -18,27 +18,6 @@ pipeline {
             }
         }
 
-        stage('Run OWASP Dependency Check') {
-            steps {
-                sh '''
-                    echo "Running OWASP Dependency Check in Docker..."
-
-                    docker run --rm \
-                        -v $(pwd):/src \
-                        owasp/dependency-check:latest \
-                        --scan /src \
-                        --format HTML \
-                        --project "diabetes-app" \
-                        --out /src/dependency-check-report
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'dependency-check-report/**/*', fingerprint: true
-                }
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
                 sh '''
