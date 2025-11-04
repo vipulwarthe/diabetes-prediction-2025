@@ -21,12 +21,15 @@ pipeline {
         stage('Run OWASP Dependency Check') {
             steps {
                 sh '''
-                    echo "Running OWASP Dependency Check..."
-                    dependency-check.sh \
-                        --project "diabetes-app" \
-                        --scan . \
+                    echo "Running OWASP Dependency Check in Docker..."
+
+                    docker run --rm \
+                        -v $(pwd):/src \
+                        owasp/dependency-check:latest \
+                        --scan /src \
                         --format HTML \
-                        --out dependency-check-report
+                        --project "diabetes-app" \
+                        --out /src/dependency-check-report
                 '''
             }
             post {
@@ -70,7 +73,7 @@ pipeline {
                     sh '''
                         aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
                         aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-                        aws configure set default.region us-east-1
+                        aws configure set default.region ${AWS_REGION}
                     '''
                 }
             }
@@ -81,7 +84,7 @@ pipeline {
                 sh '''
                     aws ecr get-login-password --region ${AWS_REGION} \
                     | docker login --username AWS --password-stdin \
-                      ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
                 '''
             }
         }
