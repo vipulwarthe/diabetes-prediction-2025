@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION     = "us-east-1"
+        AWS_REGION     = "us-east-1"                     // Change if required
         ACCOUNT_ID     = "717279727098"
-        ECR_REPO_NAME  = "diabetes-streamlit-app"
+        ECR_REPO_NAME  = "diabetes-streamlit-app"        // Update ECR repo name
         IMAGE_TAG      = "${BUILD_NUMBER}"
-        ECS_CLUSTER    = "diabetes-ecs-cluster"
-        TASK_FAMILY    = "diabetes-task-def"
+        ECS_CLUSTER    = "diabetes-ecs-cluster"          // Update if different
+        ECS_SERVICE    = "diabetes-ecs-service"          // Update if different
     }
 
     stages {
@@ -20,39 +20,22 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh '''
+                sh """
                     docker build -t ${ECR_REPO_NAME}:${IMAGE_TAG} .
-                '''
-            }
-        }
-
-        stage('Trivy Scan Image') {
-            steps {
-                sh '''
-                    echo "Scanning Docker image with Trivy..."
-                    trivy image --exit-code 0 \
-                        --format table \
-                        --severity HIGH,CRITICAL \
-                        ${ECR_REPO_NAME}:${IMAGE_TAG} > trivy-report.txt
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.txt', fingerprint: true
-                }
+                """
             }
         }
 
         stage('AWS Configure') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'aws-access-key',  variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
                     string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
                 ]) {
                     sh '''
-                        aws configure set aws_access_key_id     $AWS_ACCESS_KEY_ID
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
                         aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-                        aws configure set default.region        ${AWS_REGION}
+                        aws configure set default.region us-east-1
                     '''
                 }
             }
@@ -60,122 +43,41 @@ pipeline {
 
         stage('Login to ECR') {
             steps {
-                sh '''
+                sh """
                     aws ecr get-login-password --region ${AWS_REGION} \
-                        | docker login --username AWS --password-stdin \
-                          ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-                '''
+                    | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                """
             }
         }
 
-        stage('Create ECR Repo') {
+        stage('Tag & Push Image to ECR') {
             steps {
-                sh '''
-                    echo "Checking if ECR repo exists..."
-
-                    if ! aws ecr describe-repositories \
-                        --repository-names ${ECR_REPO_NAME} \
-                        --region ${AWS_REGION} 2>/dev/null; then
-
-                        echo "Creating ECR repo..."
-                        aws ecr create-repository \
-                          --repository-name ${ECR_REPO_NAME} \
-                          --image-scanning-configuration scanOnPush=true \
-                          --region ${AWS_REGION}
-                    else
-                        echo "✅ ECR repo already exists!"
-                    fi
-                '''
+                sh """
+                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                    docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
+                """
             }
         }
 
-        stage('Push Image to ECR') {
+        stage('Deploy New Image to ECS') {
             steps {
-                sh '''
-                    docker tag ${ECR_REPO_NAME}:${IMAGE_TAG} \
-                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
-
-                    docker push \
-                        ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}
-                '''
+                sh """
+                    aws ecs update-service \
+                        --cluster ${ECS_CLUSTER} \
+                        --service ${ECS_SERVICE} \
+                        --force-new-deployment \
+                        --region ${AWS_REGION}
+                """
             }
         }
-
-        /* ✅ CREATE ECS CLUSTER (Fixed Logic) */
-        stage('Create ECS Cluster') {
-            steps {
-                sh '''
-                    echo "Checking if ECS Cluster exists..."
-
-                    CLUSTER_STATUS=$(aws ecs describe-clusters \
-                        --clusters ${ECS_CLUSTER} \
-                        --region ${AWS_REGION} \
-                        --query "failures[0].reason" \
-                        --output text 2>/dev/null)
-
-                    if [ "$CLUSTER_STATUS" = "MISSING" ]; then
-                        echo "✅ ECS Cluster NOT found — creating..."
-                        aws ecs create-cluster \
-                            --cluster-name ${ECS_CLUSTER} \
-                            --region ${AWS_REGION}
-                    else
-                        echo "✅ ECS Cluster already exists!"
-                    fi
-                '''
-            }
-        }
-
-        /* ✅ REGISTER ONLY TASK DEFINITION */
-        stage('Create Task Definition') {
-            steps {
-                sh '''
-                    echo "Creating taskdef.json..."
-
-                    cat <<EOF > taskdef.json
-{
-  "family": "${TASK_FAMILY}",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "512",
-  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
-  "containerDefinitions": [
-    {
-      "name": "diabetes-container",
-      "image": "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}",
-      "portMappings": [
-        {
-          "containerPort": 80,
-          "protocol": "tcp"
-        }
-      ],
-      "essential": true
-    }
-  ]
-}
-EOF
-
-                    echo "Registering ECS Task Definition..."
-                    aws ecs register-task-definition \
-                        --cli-input-json file://taskdef.json
-                '''
-            }
-        }
-
-        /* ✅ No service creation — you will run tasks manually */
     }
 
     post {
         success {
-            echo "✅ ECS Cluster + TaskDefinition created successfully!"
-            echo "👉 Go to ECS → Run Task manually."
+            echo "✅ Deployment Successful — Streamlit App Updated!"
         }
         failure {
-            echo "❌ Pipeline Failed — cleaning images..."
-            sh '''
-                docker rmi -f ${ECR_REPO_NAME}:${IMAGE_TAG} || true
-                docker image prune -f || true
-            '''
+            echo "❌ Pipeline Failed!"
         }
     }
 }
