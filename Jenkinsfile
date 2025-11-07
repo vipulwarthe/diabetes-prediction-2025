@@ -4,7 +4,7 @@ pipeline {
     environment {
         AWS_REGION     = "us-east-1"
         ACCOUNT_ID     = "717279727098"
-        ECR_REPO_NAME  = "diabetes-streamlit-app"
+        ECR_REPO_NAME  = "diabetes-image-repo"
         IMAGE_TAG      = "${BUILD_NUMBER}"
         ECS_CLUSTER    = "diabetes-ecs-cluster"
         ECS_SERVICE    = "diabetes-ecs-service"
@@ -68,6 +68,28 @@ pipeline {
             }
         }
 
+        stage('Create ECR Repo If Not Exists') {
+            steps {
+                sh '''
+                    echo "Checking if ECR repo exists..."
+
+                    if ! aws ecr describe-repositories \
+                        --repository-names ${ECR_REPO_NAME} \
+                        --region ${AWS_REGION} 2>/dev/null; then
+
+                        echo "ECR repo not found. Creating..."
+                        aws ecr create-repository \
+                            --repository-name ${ECR_REPO_NAME} \
+                            --image-scanning-configuration scanOnPush=true \
+                            --region ${AWS_REGION}
+
+                    else
+                        echo "✅ ECR repo already exists!"
+                    fi
+                '''
+            }
+        }
+
         stage('Push Image to ECR') {
             steps {
                 sh '''
@@ -115,7 +137,4 @@ pipeline {
         }
     }
 }
-
-
-
 
