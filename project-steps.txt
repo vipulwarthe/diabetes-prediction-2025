@@ -1,10 +1,91 @@
+# Diabetes Prediction Application
+
 Orignal medium blog link: https://medium.com/@pp1222001/exploring-the-end-to-end-process-of-diabetes-prediction-machine-learning-project-be32add0fae3 
 orignal github link: https://github.com/paresh122/dibetes-prediction?source=post_page-----be32add0fae3---------------------------------------
 
-First create one ec2 instance  for devlop the machine learning model and create the stremlit app and run the notebook and save the model.
-second create one more instance for deploy the application using Jenkins and Docker.
+1. First create one ec2 instance  for devlop the machine learning model and create the stremlit app and run the notebook and save the model.
+2. second create one more instance for deploy the application using Jenkins and Docker.
 
 both instance are created using ubuntu 22.04/t2.medium/20gb/all-traffic
+
+✅ Install Jenkins/Docker/AWSCLI/Trivy (Manual Setup)  on Jenkins server
+
+sudo apt update
+
+sudo apt install python3-venv -y
+
+python3 -m venv MLPRO
+
+source MLPRO/bin/activate
+
+git clone
+
+cd foldername
+
+ls
+
+pip install -r requirements.txt
+
+Run jupyter notebook in vscode and save the model.
+
+streamlit run application.py
+access application on browser add the details and get the prediction for dibetes.
+
+Enter the below values:
+
+6 148 72 35 79 33 0 50
+
+you will see the result.
+
+Install docker on ubuntu server and create docker image and container using dockerfile.
+docker build -t diabetes-app .
+
+docker run -d -p 8501:8501 diabetes-app
+
+access the app using public ip:8501
+
+Install the Jenkins on ubuntu server
+sudo vi jenkins.sh
+
+sudo apt update
+
+sudo apt install fontconfig openjdk-21-jre -y
+
+java -version
+
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc
+https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc]"
+https://pkg.jenkins.io/debian-stable binary/ | sudo tee
+/etc/apt/sources.list.d/jenkins.list > /dev/null
+
+sudo apt update
+
+sudo apt install jenkins -y
+
+sudo systemctl start jenkins
+
+sudo systemctl enable jenkins
+
+sudo systemctl status jenkins
+
+sudo chmod +x jenkins.sh
+
+./jenkins.sh
+
+sudo ufw allow 8080 (optional: If you have firewall enabled, allow traffic on port 8080)
+
+-sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+automate the whole process of deployment, create jenkins cicd pipeline for application deployment using ECR and ECS.
+
+some plugins need to install-
+
+✅ Docker ✅ Docker Pipeline ✅ OWASP Dependency Check ✅ Pipeline ✅ Pipeline: Groovy ✅ Pipeline: Stage View
+
+======================================================================================================================
+SECOND SERVER INSTALLATION:
 
 ✅ OWASP Dependency Check → scans your Python dependencies
 ✅ Trivy Image Scan → scans your Docker image for vulnerabilities (best practice)
