@@ -18,7 +18,7 @@ to live demo: https://dibetes-prediction.streamlit.app/
 
 - ls
 
-- pip install - r requirements.txt
+- pip install -r requirements.txt
 
 Run jupyter notebook in vscode and save the model.
 
