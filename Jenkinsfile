@@ -4,10 +4,11 @@ pipeline {
     environment {
         AWS_REGION     = "us-east-1"
         ACCOUNT_ID     = "717279727098"
-        ECR_REPO_NAME  = "diabetes-image-repo"
+        ECR_REPO_NAME  = "diabetes-streamlit-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
         ECS_CLUSTER    = "diabetes-ecs-cluster"
         ECS_SERVICE    = "diabetes-ecs-service"
+        TASK_FAMILY    = "diabetes-task-def"
     }
 
     stages {
@@ -77,7 +78,7 @@ pipeline {
                         --repository-names ${ECR_REPO_NAME} \
                         --region ${AWS_REGION} 2>/dev/null; then
 
-                        echo "ECR repo not found. Creating..."
+                        echo "Creating ECR repo..."
                         aws ecr create-repository \
                             --repository-name ${ECR_REPO_NAME} \
                             --image-scanning-configuration scanOnPush=true \
@@ -102,39 +103,106 @@ pipeline {
             }
         }
 
-        stage('Deploy to ECS') {
+        /* ✅ CREATE ECS CLUSTER */
+        stage('Create ECS Cluster If Not Exists') {
             steps {
                 sh '''
-                    aws ecs update-service \
-                        --cluster ${ECS_CLUSTER} \
-                        --service ${ECS_SERVICE} \
-                        --force-new-deployment \
-                        --region ${AWS_REGION}
+                    if ! aws ecs describe-clusters --clusters ${ECS_CLUSTER} \
+                        --region ${AWS_REGION} | grep "ACTIVE" >/dev/null; then
+
+                        echo "Creating ECS Cluster..."
+                        aws ecs create-cluster --cluster-name ${ECS_CLUSTER}
+
+                    else
+                        echo "✅ ECS Cluster already exists!"
+                    fi
                 '''
             }
         }
 
-    } // end stages
+        /* ✅ REGISTER TASK DEFINITION */
+        stage('Create Task Definition') {
+            steps {
+                sh '''
+                    echo "Generating task definition JSON..."
+
+                    cat <<EOF > taskdef.json
+{
+  "family": "${TASK_FAMILY}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "diabetes-container",
+      "image": "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${IMAGE_TAG}",
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true
+    }
+  ]
+}
+EOF
+
+                    echo "Registering task definition..."
+                    aws ecs register-task-definition \
+                        --cli-input-json file://taskdef.json
+                '''
+            }
+        }
+
+        /* ✅ CREATE ECS SERVICE ONLY IF NOT EXISTS */
+        stage('Create ECS Service If Not Exists') {
+            steps {
+                sh '''
+                    echo "Checking if ECS service exists..."
+
+                    if ! aws ecs describe-services \
+                        --cluster ${ECS_CLUSTER} \
+                        --services ${ECS_SERVICE} \
+                        --region ${AWS_REGION} \
+                        | grep "ACTIVE" >/dev/null; then
+
+                        echo "Creating ECS Service (FARGATE, no ALB)..."
+
+                        aws ecs create-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service-name ${ECS_SERVICE} \
+                            --task-definition ${TASK_FAMILY} \
+                            --desired-count 1 \
+                            --launch-type FARGATE \
+                            --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxx],securityGroups=[sg-xxxx],assignPublicIp=ENABLED}"
+
+                    else
+                        echo "✅ ECS service already exists!"
+                    fi
+                '''
+            }
+        }
+
+        /* ✅ No Auto Deployment — You will manually deploy task */
+    }
 
     post {
         success {
-            echo "✅ Successfully deployed!"
+            echo "✅ All AWS Resources Created!"
+            echo "👉 Go to ECS Console → Run Task manually."
         }
 
         failure {
-            echo "❌ Pipeline Failed — Cleaning Docker Images..."
-
+            echo "❌ Pipeline Failed — cleaning images..."
             sh '''
-                echo "🧹 Removing failed local Docker image..."
                 docker rmi -f ${ECR_REPO_NAME}:${IMAGE_TAG} || true
-
-                echo "🧹 Removing dangling images..."
                 docker image prune -f || true
-
-                echo "🧹 Removing unused Docker layers..."
-                docker system prune -f || true
             '''
         }
     }
 }
+
 
