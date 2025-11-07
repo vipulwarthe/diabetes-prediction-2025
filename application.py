@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 
 scaler = pickle.load(open("Model/standardScalar.pkl", "rb"))
-model = pickle.load(open("Model/modelForPrediction.pkl", "rb"))
+model = pickle.load(open("Model/logisticModel.pkl", "rb"))
 
 def predict_datapoint():
     result = ""
