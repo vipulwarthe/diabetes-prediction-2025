@@ -50,6 +50,27 @@ pipeline {
             }
         }
 
+                stage('Create ECR Repo') {
+            steps {
+                sh '''
+                    echo "Checking if ECR repo exists..."
+
+                    if ! aws ecr describe-repositories \
+                        --repository-names ${ECR_REPO_NAME} \
+                        --region ${AWS_REGION} 2>/dev/null; then
+
+                        echo "Creating ECR repo..."
+                        aws ecr create-repository \
+                          --repository-name ${ECR_REPO_NAME} \
+                          --image-scanning-configuration scanOnPush=true \
+                          --region ${AWS_REGION}
+                    else
+                        echo "✅ ECR repo already exists!"
+                    fi
+                '''
+            }
+        }
+        
         stage('Tag & Push Image to ECR') {
             steps {
                 sh """
