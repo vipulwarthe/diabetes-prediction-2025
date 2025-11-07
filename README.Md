@@ -48,7 +48,7 @@ sudo vi jenkins.sh
 
 sudo apt update
 
-sudo apt install fontconfig openjdk-21-jre
+sudo apt install fontconfig openjdk-21-jre -y
 
 java -version
 
