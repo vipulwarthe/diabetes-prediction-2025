@@ -7,7 +7,6 @@ pipeline {
         ECR_REPO_NAME  = "diabetes-streamlit-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
         ECS_CLUSTER    = "diabetes-ecs-cluster"
-        ECS_SERVICE    = "diabetes-ecs-service"
         TASK_FAMILY    = "diabetes-task-def"
     }
 
@@ -69,7 +68,7 @@ pipeline {
             }
         }
 
-        stage('Create ECR Repo If Not Exists') {
+        stage('Create ECR Repo') {
             steps {
                 sh '''
                     echo "Checking if ECR repo exists..."
@@ -103,8 +102,8 @@ pipeline {
             }
         }
 
-        /* ✅ CREATE ECS CLUSTER */
-        stage('Create ECS Cluster If Not Exists') {
+        /* ✅ CREATE ECS CLUSTER (NO SERVICE) */
+        stage('Create ECS Cluster') {
             steps {
                 sh '''
                     if ! aws ecs describe-clusters --clusters ${ECS_CLUSTER} \
@@ -120,7 +119,7 @@ pipeline {
             }
         }
 
-        /* ✅ REGISTER TASK DEFINITION */
+        /* ✅ REGISTER TASK DEFINITION ONLY */
         stage('Create Task Definition') {
             steps {
                 sh '''
@@ -157,42 +156,13 @@ EOF
             }
         }
 
-        /* ✅ CREATE ECS SERVICE ONLY IF NOT EXISTS */
-        stage('Create ECS Service If Not Exists') {
-            steps {
-                sh '''
-                    echo "Checking if ECS service exists..."
-
-                    if ! aws ecs describe-services \
-                        --cluster ${ECS_CLUSTER} \
-                        --services ${ECS_SERVICE} \
-                        --region ${AWS_REGION} \
-                        | grep "ACTIVE" >/dev/null; then
-
-                        echo "Creating ECS Service (FARGATE, no ALB)..."
-
-                        aws ecs create-service \
-                            --cluster ${ECS_CLUSTER} \
-                            --service-name ${ECS_SERVICE} \
-                            --task-definition ${TASK_FAMILY} \
-                            --desired-count 1 \
-                            --launch-type FARGATE \
-                            --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxx],securityGroups=[sg-xxxx],assignPublicIp=ENABLED}"
-
-                    else
-                        echo "✅ ECS service already exists!"
-                    fi
-                '''
-            }
-        }
-
-        /* ✅ No Auto Deployment — You will manually deploy task */
+        /* ✅ No ECS Service stage (removed as requested) */
     }
 
     post {
         success {
-            echo "✅ All AWS Resources Created!"
-            echo "👉 Go to ECS Console → Run Task manually."
+            echo "✅ ECS Cluster & Task Definition created successfully!"
+            echo "👉 Now go to ECS console → choose the cluster → Run Task manually."
         }
 
         failure {
@@ -204,5 +174,4 @@ EOF
         }
     }
 }
-
 
